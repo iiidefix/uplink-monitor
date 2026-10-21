@@ -23,3 +23,11 @@ dpkg -i uplink-watchdog/dist/uplink-watchdog_*.deb
 The webservice is deployed by copying the directory to a PHP host; see its
 [README](uplink-webservice/README.md) for `config.php` and the Telegram
 setup.
+
+## License
+
+Copyright (C) 2026 iiidefix
+
+uplink-monitor is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE).
+
+If you would like to use uplink-monitor under a different license, contact the author.
