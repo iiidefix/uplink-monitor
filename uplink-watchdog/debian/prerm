@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stopping the watchdog fails back (VPN stop, notification) and leaves the backup down.
+set -e
+if [ "$1" = remove ] && [ -d /run/systemd/system ]; then
+	systemctl stop uplink-watchdog.service || true
+	systemctl disable uplink-watchdog.service || true
+fi
+exit 0

@@ -1,0 +1,18 @@
+Package: uplink-watchdog
+Version: @VERSION@
+Architecture: all
+Maintainer: @MAINTAINER@
+Section: net
+Priority: optional
+Depends: curl, iputils-ping, iproute2, ifupdown, systemd
+Description: primary uplink watchdog with webservice-controlled backup
+ uplink-watchdog checks the primary uplink (eth0) on layer 3 by pinging
+ public targets through it. After it has been down continuously for
+ FAILOVER_AFTER seconds (default 300), the backup interface (any ifupdown
+ interface, default wwan0) is brought up just long enough to notify a
+ webservice, then polled every POLL_INTERVAL seconds to ask it what to do.
+ On the answer "vpn" a configurable command runs and the backup stays up.
+ Normal traffic is never rerouted. As soon as the primary answers again,
+ the VPN is stopped, the webservice is told and the backup goes down.
+ .
+ Options are in /etc/default/uplink-watchdog.

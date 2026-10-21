@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+if [ "$1" = configure ]; then
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload
+		systemctl enable uplink-watchdog.service
+		systemctl restart uplink-watchdog.service
+	fi
+fi
+exit 0

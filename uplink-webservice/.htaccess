@@ -1,0 +1,4 @@
+# Apache (mod_rewrite): every request goes to index.php, which routes to
+# …/host and …/telegram; config.php, lib.php and the database are never served.
+RewriteEngine On
+RewriteRule ^ index.php [END]

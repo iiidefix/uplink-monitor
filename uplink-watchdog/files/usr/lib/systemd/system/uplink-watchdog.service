@@ -1,0 +1,13 @@
+[Unit]
+Description=Primary uplink watchdog with webservice-controlled backup
+After=network.target
+
+[Service]
+ExecStart=/usr/sbin/uplink-watchdog
+Restart=always
+# SIGTERM to the watchdog only, so a running ifdown or request finishes during failback.
+KillMode=mixed
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

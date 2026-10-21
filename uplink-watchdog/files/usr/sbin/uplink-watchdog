@@ -1,0 +1,266 @@
+#!/bin/bash
+# uplink-watchdog — watches the primary uplink and, when it fails, uses a
+# backup interface only to tell a webservice and to ask it what to do. On
+# the answer "vpn" it runs a configurable command over the backup. Normal
+# traffic is never rerouted. Health is judged on layer 3 only (pings through
+# each interface), never on link/carrier state. The backup is brought up
+# (ifup) only for each request, or while the VPN runs, and down otherwise.
+# Defaults; override them in /etc/default/uplink-watchdog.
+PRIMARY=eth0
+BACKUP=wwan0
+TARGETS="1.1.1.1 8.8.8.8 9.9.9.9"
+FAILOVER_AFTER=300 # seconds the primary must be down continuously before failing over
+FAILBACK_AFTER=0   # seconds the primary must be healthy again before failing back (0 = first good check)
+INTERVAL=10        # seconds between primary health checks
+FAILED_INTERVAL=2  # seconds between primary health checks while failed over
+NOTIFY_URL=""      # webservice for failover/failback events (POST JSON); empty = no webservice
+POLL_URL=""        # webservice asked what to do (GET); empty = NOTIFY_URL
+POLL_INTERVAL=300  # seconds between polls while failed over
+API_TOKEN=""       # sent as "Authorization: Bearer <token>"
+SERVICE_IP=""      # address of the host name in the URLs (no DNS is used for the webservice)
+HTTP_TIMEOUT=15    # seconds per request
+VPN_START_CMD=""   # run on the answer "vpn"
+VPN_CHECK_CMD=""   # exits 0 while the VPN works; a later "vpn" reruns VPN_START_CMD otherwise
+VPN_STOP_CMD=""    # run on "stop" and on failback if VPN_START_CMD ran
+PRIMARY_UP_CMD=""  # run when the primary turns healthy (also on the first check after start)
+PRIMARY_DOWN_CMD="" # run when the primary turns unhealthy (also on the first check after start)
+BACKUP_UP_CMD=""   # run after the backup was brought up
+BACKUP_DOWN_CMD="" # run after the backup was taken down (only if it was up)
+FAILOVER_CMD=""    # run on failing over, before the backup is brought up for the notification
+FAILBACK_CMD=""    # run after failing back (VPN stopped, notification sent, backup down)
+FAILBACK_STABLE_AFTER=300 # seconds the primary must stay healthy after a failback for it to count as stable
+FAILBACK_STABLE_CMD="" # run once a failback is stable
+CMD_TIMEOUT=60     # seconds a command may run
+BACKUP_CHECK=30    # while the VPN runs, check the backup every N seconds
+STATE=/run/uplink-watchdog
+[ -r /etc/default/uplink-watchdog ] && . /etc/default/uplink-watchdog
+POLL_URL=${POLL_URL:-$NOTIFY_URL}
+
+mkdir -p $STATE
+chmod 0700 $STATE
+
+reachable() {  # reachable IFACE — true if any target answers via IFACE
+	local t
+	for t in $TARGETS; do
+		ping -n -q -c1 -W2 -I "$1" "$t" >/dev/null 2>&1 && return 0
+	done
+	return 1
+}
+
+# Both log to stderr only, so they can run inside backup_request.
+backup_up() {
+	ifquery --state $BACKUP >/dev/null 2>&1 && return 0
+	ifup $BACKUP >&2 || return 1
+	hook BACKUP_UP_CMD >&2
+}
+
+backup_down() {
+	local was_up=
+	ifquery --state $BACKUP >/dev/null 2>&1 && was_up=1
+	ifdown --force $BACKUP >/dev/null 2>&1
+	[ -z "$was_up" ] || hook BACKUP_DOWN_CMD >&2
+}
+
+backup_gw() {
+	ip -4 route show table all default dev $BACKUP | sed -n 's/.*via \([0-9.]*\).*/\1/p' | head -1
+}
+
+event() {  # event NAME — the JSON sent to NOTIFY_URL
+	printf '{"host":"%s","event":"%s","primary":"%s","backup":"%s","time":"%s"}' \
+		"$(hostname)" "$1" "$PRIMARY" "$BACKUP" "$(date -Is)"
+}
+
+resolve_arg() {  # resolve_arg URL — "host:port:SERVICE_IP" for curl --resolve
+	local hp=${1#*://} scheme=${1%%://*} port
+	hp=${hp%%/*}; hp=${hp%%\?*}
+	case $hp in
+		*:*) port=${hp##*:}; hp=${hp%:*} ;;
+		*)   [ "$scheme" = https ] && port=443 || port=80 ;;
+	esac
+	echo "$hp:$port:$SERVICE_IP"
+}
+
+http() {  # http IFACE METHOD URL [DATA] — print the response body; fail on errors and HTTP >= 400
+	local iface=$1 method=$2 url=$3 args=(-sS -f --max-time $HTTP_TIMEOUT --interface "$1")
+	[ -n "$SERVICE_IP" ] && args+=(--resolve "$(resolve_arg "$url")")
+	# The token goes through a file so it doesn't show up in the process list.
+	[ -n "$API_TOKEN" ] && args+=(-H @$STATE/auth)
+	[ "$method" = POST ] && args+=(-H 'Content-Type: application/json' --data "$4")
+	curl "${args[@]}" "$url"
+}
+
+backup_request() {  # backup_request METHOD URL [DATA] — request over the backup, retried once after a fresh bring-up
+	local try
+	# Only the response goes to stdout; everything else is logged via stderr.
+	for try in 1 2; do
+		[ $try = 2 ] && { echo "retrying over a fresh $BACKUP" >&2; backup_down; }
+		backup_up && http $BACKUP "$@" && return 0
+	done
+	return 1
+}
+
+run_cmd() {  # run_cmd NAME — run the command in variable NAME, logging its outcome
+	local cmd=${!1} rc
+	PRIMARY=$PRIMARY BACKUP=$BACKUP BACKUP_GW=$(backup_gw) timeout $CMD_TIMEOUT sh -c "$cmd" 2>&1
+	rc=$?
+	[ $rc = 0 ] || echo "$1 failed (exit $rc)"
+	return $rc
+}
+
+hook() {  # hook NAME — run the command in variable NAME, if set
+	[ -z "${!1}" ] || run_cmd $1
+	return 0
+}
+
+primary_is() {  # primary_is up|down — on a change of the primary's health, log it and run its hook
+	[ "$primary" = $1 ] && return
+	primary=$1
+	echo "$PRIMARY is $1"
+	if [ $1 = up ]; then hook PRIMARY_UP_CMD; else hook PRIMARY_DOWN_CMD; fi
+}
+
+notify() {
+	if backup_request POST "$NOTIFY_URL" "$(event failover)" >/dev/null; then
+		notified=1
+		echo "webservice notified of the failover"
+	else
+		echo "failover notification failed; retrying with the next poll"
+	fi
+}
+
+stop_vpn() {  # stop_vpn — end the VPN if VPN_START_CMD ran; the caller takes the backup down
+	[ -n "$vpn" ] || return 0
+	[ -n "$VPN_STOP_CMD" ] && { echo "stopping the VPN"; run_cmd VPN_STOP_CMD; }
+	rm -f $STATE/vpn
+	vpn=
+}
+
+start_vpn() {
+	if [ -z "$VPN_START_CMD" ]; then
+		echo "webservice asked for the VPN, but VPN_START_CMD is empty"
+	elif [ -z "$vpn" ]; then
+		echo "webservice asked for the VPN: running VPN_START_CMD"
+		vpn=1
+		touch $STATE/vpn
+		run_cmd VPN_START_CMD
+	elif [ -n "$VPN_CHECK_CMD" ] && ! run_cmd VPN_CHECK_CMD >/dev/null; then
+		echo "VPN not working: running VPN_START_CMD again"
+		run_cmd VPN_START_CMD
+	fi
+}
+
+poll() {
+	local answer
+	[ -n "$NOTIFY_URL" ] && [ -z "$notified" ] && notify
+	case $POLL_URL in *\?*) sep='&' ;; *) sep='?' ;; esac
+	answer=$(backup_request GET "$POLL_URL${sep}host=$(hostname)" | tr -d '[:space:]') || answer=
+	case $answer in
+		vpn)  start_vpn ;;
+		none) ;;
+		stop) [ -z "$vpn" ] || { echo "webservice said stop: ending the VPN"; stop_vpn; } ;;
+		*)    echo "no usable answer from the webservice ('$answer'); treating it as none" ;;
+	esac
+	[ -n "$vpn" ] || backup_down
+}
+
+check_backup() {  # layer 3 only: the backup is good if targets answer through it
+	if reachable $BACKUP; then
+		backup_bad=0
+		return
+	fi
+	backup_bad=$((backup_bad + 1))
+	if [ $backup_bad -ge 2 ]; then
+		echo "$BACKUP not working while the VPN runs: bringing it down and up again"
+		backup_down
+		backup_up && backup_bad=0
+	fi
+}
+
+fail_over() {
+	echo "$PRIMARY unhealthy for ${FAILOVER_AFTER}s: failing over"
+	touch $STATE/failed
+	notified= vpn= backup_bad=0 polling= stable_since=
+	[ -n "$POLL_URL" ] && polling=1
+	hook FAILOVER_CMD
+	if [ -n "$NOTIFY_URL" ]; then
+		notify
+		backup_down
+	fi
+	last_poll=$(date +%s)
+}
+
+fail_back() {  # fail_back REASON
+	# A stop signal arriving meanwhile waits for this to finish (see the trap).
+	in_failback=1
+	echo "$1: failing back"
+	stable_since=$(date +%s)
+	rm -f $STATE/failed
+	polling= notified=
+	stop_vpn
+	if [ -n "$NOTIFY_URL" ]; then
+		http $PRIMARY POST "$NOTIFY_URL" "$(event failback)" >/dev/null || echo "failback notification failed"
+	fi
+	backup_down
+	hook FAILBACK_CMD
+	in_failback=
+	[ -z "$stopping" ] || exit 0
+}
+
+if [ -n "$API_TOKEN" ]; then
+	(umask 077; echo "Authorization: Bearer $API_TOKEN" > $STATE/auth)
+else
+	rm -f $STATE/auth
+fi
+case ${POLL_URL#*://} in
+	[0-9]*.[0-9]*.[0-9]*.[0-9]*|"") ;;
+	*) [ -n "$SERVICE_IP" ] || echo "warning: $POLL_URL names a host but SERVICE_IP is empty; it can't be resolved over $BACKUP" ;;
+esac
+
+# On stop (service stop, package removal), fail back and leave the backup down.
+# A failback already running finishes first and then exits.
+stopping= in_failback= stable_since=
+trap 'stopping=1; [ -n "$in_failback" ] || { [ -e $STATE/failed ] || [ -n "$vpn" ] && fail_back stopping; exit 0; }' TERM INT
+
+# Start from a clean state: backup down, unless the checks say otherwise.
+[ -e $STATE/vpn ] && vpn=1
+if [ -e $STATE/failed ] || [ -n "$vpn" ]; then fail_back "failed over before restart"; else backup_down; fi
+echo "failover after ${FAILOVER_AFTER}s down, failback after ${FAILBACK_AFTER}s up"
+primary= down_since= up_since= vpn= notified= polling= backup_bad=0 last_poll=0 last_backup_check=0
+while :; do
+	now=$(date +%s)
+	if reachable $PRIMARY; then
+		primary_is up
+		down_since=
+		up_since=${up_since:-$now}
+		[ -e $STATE/failed ] && [ $((now - up_since)) -ge $FAILBACK_AFTER ] && fail_back "$PRIMARY healthy again"
+		# A failback is stable once the primary has passed every check since it for FAILBACK_STABLE_AFTER.
+		if [ -n "$stable_since" ] && [ $((now - stable_since)) -ge $FAILBACK_STABLE_AFTER ]; then
+			echo "$PRIMARY healthy for ${FAILBACK_STABLE_AFTER}s since the failback: failback stable"
+			stable_since=
+			hook FAILBACK_STABLE_CMD
+		fi
+	else
+		primary_is down
+		up_since=
+		# A failed check restarts the wait for a stable failback.
+		[ -z "$stable_since" ] || stable_since=$now
+		[ -z "$down_since" ] && [ ! -e $STATE/failed ] && echo "$PRIMARY check failed; failing over if still down after ${FAILOVER_AFTER}s"
+		down_since=${down_since:-$now}
+		[ ! -e $STATE/failed ] && [ $((now - down_since)) -ge $FAILOVER_AFTER ] && fail_over
+	fi
+
+	if [ -e $STATE/failed ]; then
+		now=$(date +%s)
+		if [ -n "$vpn" ] && [ $((now - last_backup_check)) -ge $BACKUP_CHECK ]; then
+			check_backup
+			last_backup_check=$now
+		fi
+		if [ -n "$polling" ] && [ $((now - last_poll)) -ge $POLL_INTERVAL ]; then
+			poll
+			last_poll=$(date +%s)
+		fi
+		sleep $FAILED_INTERVAL & wait $!
+	else
+		sleep $INTERVAL & wait $!
+	fi
+done

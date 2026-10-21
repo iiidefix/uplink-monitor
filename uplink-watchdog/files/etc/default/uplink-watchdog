@@ -1,0 +1,70 @@
+# /etc/default/uplink-watchdog — options for the uplink watchdog.
+# Apply changes with: systemctl restart uplink-watchdog
+# Health is judged on layer 3 only: pings to TARGETS through each interface.
+# This file is readable by root only, because it can hold API_TOKEN.
+
+# Primary uplink, and the backup interface (any ifupdown interface; brought
+# up only for webservice requests and while the VPN runs).
+PRIMARY=eth0
+BACKUP=wwan0
+
+# Seconds the primary must be unable to reach the internet, continuously,
+# before failing over.
+FAILOVER_AFTER=300
+
+# Seconds the primary must be healthy again before failing back.
+# 0 = fail back on the first good check.
+FAILBACK_AFTER=0
+
+# Seconds between primary health checks: normally, and while failed over.
+# The short FAILED_INTERVAL is what makes the failback fast.
+INTERVAL=10
+FAILED_INTERVAL=2
+
+# Ping targets for the health checks (any one answering counts as healthy).
+TARGETS="1.1.1.1 8.8.8.8 9.9.9.9"
+
+# Webservice. On failover and failback a JSON event is POSTed to NOTIFY_URL.
+# While failed over, POLL_URL (empty = NOTIFY_URL) is fetched every
+# POLL_INTERVAL seconds with ?host=<hostname>; it answers vpn, none or stop.
+# Empty NOTIFY_URL = no webservice.
+# No DNS is used for it: put an IP address in the URLs, or the address of
+# the URL's host name in SERVICE_IP.
+NOTIFY_URL=""
+POLL_URL=""
+POLL_INTERVAL=300
+SERVICE_IP=""
+# Sent as "Authorization: Bearer <token>" if set.
+API_TOKEN=""
+
+# Commands (run with sh -c; PRIMARY, BACKUP and BACKUP_GW are set).
+# VPN_START_CMD runs on a "vpn" answer while the VPN isn't running, and must
+# route the VPN over the backup itself. While it runs, a later "vpn" reruns
+# it only if VPN_CHECK_CMD exits non-zero. VPN_STOP_CMD runs on "stop" and
+# on failback.
+VPN_START_CMD=""
+VPN_CHECK_CMD=""
+VPN_STOP_CMD=""
+
+# Commands run on state changes (sh -c, same environment as above).
+# PRIMARY_UP_CMD/PRIMARY_DOWN_CMD run when the primary's health check
+# changes from failing to passing or back, at once (not delayed by
+# FAILOVER_AFTER/FAILBACK_AFTER), and for the first check after a start.
+# BACKUP_UP_CMD runs after the backup was brought up, BACKUP_DOWN_CMD after
+# it was taken down (only if it was up).
+PRIMARY_UP_CMD=""
+PRIMARY_DOWN_CMD=""
+BACKUP_UP_CMD=""
+BACKUP_DOWN_CMD=""
+# FAILOVER_CMD runs on failing over, before the backup is brought up for
+# the failover notification.
+FAILOVER_CMD=""
+# FAILBACK_CMD runs after failing back, once the VPN is stopped, the
+# failback notification was tried and the backup is down. Also on the
+# failback done when the service stops or restarts while failed over.
+FAILBACK_CMD=""
+# FAILBACK_STABLE_CMD runs once after a failback, when the primary has
+# passed its checks for FAILBACK_STABLE_AFTER seconds since. A failed check
+# restarts the wait; a new failover cancels it.
+FAILBACK_STABLE_AFTER=300
+FAILBACK_STABLE_CMD=""
