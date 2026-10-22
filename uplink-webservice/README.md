@@ -114,7 +114,9 @@ also needs public HTTPS with a valid certificate.
    - nginx: one location that runs `index.php` for every path, e.g.
      `location /uplink/ { include fastcgi_params; fastcgi_param
      SCRIPT_FILENAME /srv/uplink-webservice/index.php; fastcgi_pass …; }`.
-5. Each watchdog (`/etc/default/uplink-watchdog`):
+5. Each watchdog (`/etc/default/uplink-watchdog`; the package also asks for
+   these at install, see its
+   [README](../uplink-watchdog/README.md#questions-at-install)):
 
    ```sh
    NOTIFY_URL="https://example.org/uplink/host"

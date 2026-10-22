@@ -20,6 +20,10 @@ make -C uplink-watchdog          # → uplink-watchdog/dist/uplink-watchdog_<ver
 dpkg -i uplink-watchdog/dist/uplink-watchdog_*.deb
 ```
 
+`dpkg` asks for the watchdog's settings (debconf); the answers go into
+`/etc/default/uplink-watchdog`, see the
+[watchdog README](uplink-watchdog/README.md#questions-at-install).
+
 The webservice is deployed by copying the directory to a PHP host; see its
 [README](uplink-webservice/README.md) for `config.php` and the Telegram
 setup.
