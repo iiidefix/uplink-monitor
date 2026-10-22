@@ -1,6 +1,56 @@
 #!/bin/sh
 set -e
+. /usr/share/debconf/confmodule
+conf=/etc/default/uplink-watchdog
+
+set_conf() {  # set_conf VAR VALUE: write VAR="VALUE" into the conffile if it differs
+	cur=$(. "$conf"; eval "printf %s \"\${$1-}\"")
+	[ "$cur" = "$2" ] && return 0
+	esc=$(printf %s "$2" | sed 's/[\\"$`]/\\&/g')
+	tmp=$(mktemp)
+	N=$1 V=$esc awk 'BEGIN { n = ENVIRON["N"]; v = ENVIRON["V"]; done = 0 }
+		!done && index($0, n "=") == 1 { print n "=\"" v "\""; done = 1; next }
+		{ print }
+		END { if (!done) print n "=\"" v "\"" }' "$conf" > "$tmp"
+	cat "$tmp" > "$conf"
+	rm -f "$tmp"
+}
+
+apply() {  # apply VAR bool|str|req: the debconf answer into the conffile (req: never empty)
+	db_get uplink-watchdog/$(echo "$1" | tr 'A-Z' 'a-z')
+	val=$RET
+	if [ "$2" = bool ]; then
+		case $val in true) val=yes ;; *) val=no ;; esac
+	fi
+	[ "$2" = req ] && [ -z "$val" ] && return 0
+	set_conf "$1" "$val"
+}
+
 if [ "$1" = configure ]; then
+	apply PRIMARY req
+	apply BACKUP req
+	apply FAILOVER_AFTER req
+	apply FAILBACK_AFTER req
+	apply INTERVAL req
+	apply FAILED_INTERVAL req
+	apply TARGETS req
+	apply NOTIFY_URL str
+	apply POLL_URL str
+	apply POLL_INTERVAL req
+	apply SERVICE_IP str
+	apply API_TOKEN str
+	apply VPN_START_CMD str
+	apply VPN_CHECK_CMD str
+	apply VPN_STOP_CMD str
+	apply PRIMARY_UP_CMD str
+	apply PRIMARY_DOWN_CMD str
+	apply BACKUP_UP_CMD str
+	apply BACKUP_DOWN_CMD str
+	apply FAILOVER_CMD str
+	apply FAILBACK_CMD str
+	apply FAILBACK_STABLE_AFTER req
+	apply FAILBACK_STABLE_CMD str
+	db_stop
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload
 		systemctl enable uplink-watchdog.service

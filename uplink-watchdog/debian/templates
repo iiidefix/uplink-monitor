@@ -1,0 +1,150 @@
+Template: uplink-watchdog/primary
+Type: string
+Default: eth0
+Description: Primary uplink interface
+ The interface whose internet access is watched.
+
+Template: uplink-watchdog/backup
+Type: string
+Default: wwan0
+Description: Backup interface
+ Any ifupdown interface. It is brought up only for webservice requests
+ and while the VPN runs.
+
+Template: uplink-watchdog/failover_after
+Type: string
+Default: 300
+Description: Seconds without internet before failing over
+ The primary must be unable to reach the internet continuously for this
+ long.
+
+Template: uplink-watchdog/failback_after
+Type: string
+Default: 0
+Description: Seconds the primary must be healthy before failing back
+ 0 fails back on the first good check.
+
+Template: uplink-watchdog/interval
+Type: string
+Default: 10
+Description: Seconds between health checks
+ Used while the primary is healthy.
+
+Template: uplink-watchdog/failed_interval
+Type: string
+Default: 2
+Description: Seconds between health checks while failed over
+ A short interval makes the failback fast.
+
+Template: uplink-watchdog/targets
+Type: string
+Default: 1.1.1.1 8.8.8.8 9.9.9.9
+Description: Ping targets for the health checks
+ Space-separated addresses. Any one answering counts as healthy.
+
+Template: uplink-watchdog/notify_url
+Type: string
+Default: 
+Description: Webservice URL for failover and failback events
+ A JSON event is POSTed to this URL. Leave empty for no webservice. No
+ DNS is used: put an IP address in the URL, or set the service address
+ below.
+
+Template: uplink-watchdog/poll_url
+Type: string
+Default: 
+Description: Webservice URL to poll while failed over
+ Fetched every poll interval with ?host=<hostname>; it answers vpn, none
+ or stop. Leave empty to use the notification URL.
+
+Template: uplink-watchdog/poll_interval
+Type: string
+Default: 300
+Description: Seconds between polls of the webservice
+ Used while failed over.
+
+Template: uplink-watchdog/service_ip
+Type: string
+Default: 
+Description: Address of the webservice's host name
+ Used instead of DNS if the URLs contain a host name. Leave empty if they
+ contain an IP address.
+
+Template: uplink-watchdog/api_token
+Type: password
+Description: Webservice API token
+ Sent as "Authorization: Bearer <token>". Leave empty for none. It is
+ stored in /etc/default/uplink-watchdog, which only root can read.
+
+Template: uplink-watchdog/vpn_start_cmd
+Type: string
+Default: 
+Description: Command to start the VPN
+ Run (sh -c) on a "vpn" answer while the VPN isn't running. It must route
+ the VPN over the backup itself.
+
+Template: uplink-watchdog/vpn_check_cmd
+Type: string
+Default: 
+Description: Command to check the VPN
+ A later "vpn" answer reruns the start command only if this exits non-
+ zero.
+
+Template: uplink-watchdog/vpn_stop_cmd
+Type: string
+Default: 
+Description: Command to stop the VPN
+ Run on a "stop" answer and on failback.
+
+Template: uplink-watchdog/primary_up_cmd
+Type: string
+Default: 
+Description: Command when the primary becomes healthy
+ Run at once when the primary's health check changes from failing to
+ passing, and for the first check after a start.
+
+Template: uplink-watchdog/primary_down_cmd
+Type: string
+Default: 
+Description: Command when the primary stops being healthy
+ Run at once when the primary's health check changes from passing to
+ failing, without the failover delay.
+
+Template: uplink-watchdog/backup_up_cmd
+Type: string
+Default: 
+Description: Command after the backup was brought up
+ Run after each time the backup interface was brought up.
+
+Template: uplink-watchdog/backup_down_cmd
+Type: string
+Default: 
+Description: Command after the backup was taken down
+ Run after each time the backup interface was taken down, if it was up.
+
+Template: uplink-watchdog/failover_cmd
+Type: string
+Default: 
+Description: Command on failing over
+ Run before the backup is brought up for the failover notification.
+
+Template: uplink-watchdog/failback_cmd
+Type: string
+Default: 
+Description: Command after failing back
+ Run once the VPN is stopped, the notification was tried and the backup
+ is down.
+
+Template: uplink-watchdog/failback_stable_after
+Type: string
+Default: 300
+Description: Seconds the primary must stay healthy after a failback
+ After this long the stable command runs. A failed check restarts the
+ wait.
+
+Template: uplink-watchdog/failback_stable_cmd
+Type: string
+Default: 
+Description: Command when the primary stayed healthy after a failback
+ Run once after a failback, when the primary has passed its checks for
+ the time above.

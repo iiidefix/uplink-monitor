@@ -1,0 +1,48 @@
+#!/bin/sh
+# debconf: ask for the settings of uplink-watchdog. The values in
+# /etc/default/uplink-watchdog (if there already is one) are the starting point, so
+# upgrades and dpkg-reconfigure show what is set now.
+set -e
+. /usr/share/debconf/confmodule
+conf=/etc/default/uplink-watchdog
+[ -r "$conf" ] && . "$conf"
+
+ask() {  # ask VAR PRIORITY bool|str|req DEFAULT
+	q=uplink-watchdog/$(echo "$1" | tr 'A-Z' 'a-z')
+	eval "isset=\${$1+x}"
+	if [ -n "$isset" ]; then
+		eval "val=\$$1"
+		if [ "$3" = bool ]; then
+			case $val in yes) val=true ;; *) val=false ;; esac
+		fi
+		# A value that differs from the shipped default was set by hand or by an
+		# earlier answer, and wins. Otherwise a preseeded or earlier answer stands.
+		[ "$val" = "$4" ] || db_set "$q" "$val"
+	fi
+	db_input "$2" "$q" || true
+}
+
+ask PRIMARY medium req 'eth0'
+ask BACKUP medium req 'wwan0'
+ask FAILOVER_AFTER medium req '300'
+ask FAILBACK_AFTER low req '0'
+ask INTERVAL low req '10'
+ask FAILED_INTERVAL low req '2'
+ask TARGETS low req '1.1.1.1 8.8.8.8 9.9.9.9'
+ask NOTIFY_URL medium str ''
+ask POLL_URL medium str ''
+ask POLL_INTERVAL low req '300'
+ask SERVICE_IP low str ''
+ask API_TOKEN medium str ''
+ask VPN_START_CMD medium str ''
+ask VPN_CHECK_CMD low str ''
+ask VPN_STOP_CMD medium str ''
+ask PRIMARY_UP_CMD low str ''
+ask PRIMARY_DOWN_CMD low str ''
+ask BACKUP_UP_CMD low str ''
+ask BACKUP_DOWN_CMD low str ''
+ask FAILOVER_CMD low str ''
+ask FAILBACK_CMD low str ''
+ask FAILBACK_STABLE_AFTER low req '300'
+ask FAILBACK_STABLE_CMD low str ''
+db_go || true

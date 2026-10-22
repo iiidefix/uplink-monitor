@@ -4,7 +4,7 @@ Architecture: all
 Maintainer: @MAINTAINER@
 Section: net
 Priority: optional
-Depends: curl, iputils-ping, iproute2, ifupdown, systemd
+Depends: curl, iputils-ping, iproute2, ifupdown, systemd, debconf (>= 0.5) | debconf-2.0
 Description: primary uplink watchdog with webservice-controlled backup
  uplink-watchdog checks the primary uplink (eth0) on layer 3 by pinging
  public targets through it. After it has been down continuously for

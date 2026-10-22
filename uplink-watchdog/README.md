@@ -134,17 +134,36 @@ with `systemctl restart uplink-watchdog`.
 Also settable, but not in the shipped file: `HTTP_TIMEOUT` (15 s per
 request), `CMD_TIMEOUT` (60 s per command), `BACKUP_CHECK` (30 s).
 
+## Questions at install
+
+uplink-watchdog asks for its settings with debconf when it is installed (the main
+ones at the default priority, the rest at low priority) and writes the
+answers into `/etc/default/uplink-watchdog`. Look at everything, or change the answers
+later, with:
+
+```sh
+dpkg-reconfigure -plow uplink-watchdog
+```
+
+An installation without a terminal uses the defaults, or preseeded answers
+(`debconf-set-selections`, question names `uplink-watchdog/<setting in lower case>`, for
+example `uplink-watchdog/failover_after`). The file stays the truth for a running system: a value
+in it that differs from the shipped default (set by hand, or by an earlier
+answer) is the starting point of the question and is not replaced by a
+preseeded or older answer. Only lines whose value changed are rewritten,
+other lines and comments stay. `API_TOKEN` is asked as a password; the file stays mode 0600. An empty answer for a setting that cannot be empty (interfaces, intervals, targets) is ignored. The service is restarted after the answers are written.
+
 ## Build and install
 
 ```sh
-make                    # → dist/uplink-watchdog_1.0.0_all.deb
-make VERSION=1.0.1      # another version
+make                    # → dist/uplink-watchdog_1.1.0_all.deb
+make VERSION=1.1.1      # another version
 make clean
 dpkg -i dist/uplink-watchdog_*.deb
 ```
 
-Depends on: curl, iputils-ping, iproute2, ifupdown, systemd. The postinst
-enables and restarts the service.
+Depends on: curl, iputils-ping, iproute2, ifupdown, systemd, debconf. The postinst
+writes the debconf answers, then enables and restarts the service.
 
 ## Operating it
 
