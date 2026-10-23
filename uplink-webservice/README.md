@@ -3,7 +3,7 @@
 A small PHP webservice for [`uplink-watchdog`](../uplink-watchdog/README.md).
 It keeps each host's state in SQLite and reports failover and failback in
 Telegram. When a failed-over host polls, it gets the answer you chose with
-a Telegram button or command, or on the web page: `vpn`, `stop` or `none`.
+a Telegram button or command, or on the web page: `vpn` or `stop` (the default).
 
 ## How it works
 
@@ -14,32 +14,47 @@ Everything is in this one directory:
 | `host.php` | Watchdog endpoint `…/host` (bearer token) |
 | `telegram.php` | Telegram webhook `…/telegram` (secret token) |
 | `index.php` | Router for every request, and the status and control page |
-| `lib.php` | Database (one `hosts` table) and Telegram calls |
+| `lib.php` | Database (`hosts` and `messages` tables) and Telegram calls |
 | `config.example.php` | Copy to `config.php` |
 | `server.bash` | Runs it with PHP's built-in web server |
 | `.htaccess` | Apache: rewrites every request to `index.php` |
 | `uplink.sqlite` | Created on first use |
 
 Each host has a `state` (`normal`/`failed`) and an `answer`
-(`none`/`vpn`/`stop`). The answer stays until it's changed. Failover and
-failback reset it to `none`. A host that isn't failed over always gets
-`none`.
+(`vpn`/`stop`). The answer stays until it's changed. Failover and
+failback reset it to `stop`. A host that isn't failed over always gets
+`stop`.
 
 **Watchdog** (`Authorization: Bearer <token>`, else 401):
 
 | Request | Reply |
 |---|---|
-| `POST …/host` with JSON `{"host","event":"failover"\|"failback","time"}` | `ok`, plus a Telegram message (on failover with **Start VPN** / **Stop VPN** buttons) |
-| `GET …/host?host=<name>` | `none`, `vpn` or `stop` |
+| `POST …/host` with JSON `{"host","event":"failover"\|"failback","time"}` | `ok`, plus a Telegram message (on failover with a **Start VPN** or **Stop VPN** button, see below) |
+| `GET …/host?host=<name>` | `vpn` or `stop` |
 
 **Telegram** (`…/telegram`, the webhook: calls without the secret token
 get 403; only chats in `TELEGRAM_CHAT_IDS` are accepted):
 
 | Input | Effect |
 |---|---|
-| Button **Start VPN** / **Stop VPN** | Answer `vpn` / `stop` for that host |
-| `/vpn`, `/stop`, `/none [host]` | Set the answer. Without a host, it applies to the one failed-over host |
+| Button **Start VPN** / **Stop VPN** | Answer `vpn` / `stop` for that host. Only one is shown: **Stop VPN** while the answer is `vpn`, else **Start VPN** |
+| `/vpn`, `/stop [host]` | Set the answer. Without a host, it applies to the one failed-over host |
 | anything else | Lists the failed-over hosts |
+
+**Status in the message:** the failover message carries a `Status:` line
+that the service edits as things happen:
+
+| Status | When |
+|---|---|
+| `no VPN requested, stop is the default` | At failover |
+| `vpn requested, goes out with the next poll` (or `stop …`) | The answer was set (button, command or page), no poll has fetched it yet |
+| `vpn sent to the host at <time>` (or `stop …`) | The first poll that fetched the answer |
+| `failed back at <time>` | On failback; the buttons are removed |
+
+The watchdog doesn't report whether the VPN really started, so "sent to
+the host" is the last thing the service knows. The message IDs are kept in
+the `messages` table until the failback, which deletes them. If an edit
+fails it is only logged.
 
 **Page** (`index.php`): the hosts with state, answer, last event and last
 poll, plus buttons for failed-over hosts. PHP protects it with HTTP basic

@@ -1,5 +1,5 @@
 <?php
-// Telegram webhook: inline buttons ("vpn:<host>") and /vpn, /stop, /none [host]
+// Telegram webhook: inline buttons ("vpn:<host>") and /vpn, /stop [host]
 // from the allowed chats. Calls without the webhook's secret token get 403.
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
@@ -21,8 +21,8 @@ if ($query = $input['callback_query'] ?? null) {
 	[$command, $name] = explode(' ', trim($input['message']['text'] ?? ''), 2) + ['', ''];
 	$answer = ltrim(strtok($command, '@'), '/');
 	$failed = array_column(hosts("state = 'failed'"), 'name');
-	if (!in_array($answer, ['vpn', 'stop', 'none'], true)) {
-		$text = "Failed over: " . (implode(', ', $failed) ?: 'none') . "\n/vpn, /stop, /none [host]";
+	if (!in_array($answer, ['vpn', 'stop'], true)) {
+		$text = "Failed over: " . (implode(', ', $failed) ?: 'none') . "\n/vpn, /stop [host]";
 	} elseif ($name === '' && count($failed) !== 1) {
 		$text = 'Which host?';
 	} else {

@@ -43,7 +43,7 @@ $h = fn($s) => htmlspecialchars((string)$s);
 	<td><?= $h($host['state']) ?></td>
 	<td><?php if ($host['state'] === 'failed'): ?>
 		<form method="post"><input type="hidden" name="host" value="<?= $h($host['name']) ?>">
-		<?php foreach (['none', 'vpn', 'stop'] as $answer): ?>
+		<?php foreach (['vpn', 'stop'] as $answer): ?>
 			<button name="answer" value="<?= $answer ?>"<?= $answer === $host['answer'] ? ' disabled' : '' ?>><?= $answer ?></button>
 		<?php endforeach ?></form>
 	<?php else: ?>–<?php endif ?></td>
