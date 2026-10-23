@@ -1,14 +1,17 @@
 <?php
 // Endpoint for uplink-watchdog (NOTIFY_URL/POLL_URL), with its bearer token.
 //   POST {"host","event":"failover"|"failback","time",...}  → "ok"
-//   GET  ?host=<name>                                       → "none" | "vpn" | "stop"
+//   GET  ?host=<name>                                       → "vpn" | "stop"
 declare(strict_types=1);
 require __DIR__ . '/lib.php';
 
 header('Content-Type: text/plain');
 $input = json_decode(file_get_contents('php://input'), true) ?: [];
 
-if (HOST_TOKEN === '' || !hash_equals('Bearer ' . HOST_TOKEN, $_SERVER['HTTP_AUTHORIZATION'] ?? '')) {
+$headers = function_exists('getallheaders') ? getallheaders() : [];
+$authorization = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+
+if (HOST_TOKEN === '' || !hash_equals('Bearer ' . HOST_TOKEN, $_SERVER['HTTP_AUTHORIZATION'] ?? $authorization)) {
 	http_response_code(401);
 	exit("unauthorized\n");
 }
